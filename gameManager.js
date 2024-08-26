@@ -1,8 +1,6 @@
 const games = {};
 
 function createLine(line, roomID) {
-  if (!games[roomID]) games[roomID] = { lines: [] };
-
   games[roomID].lines.push(line);
 }
 
@@ -31,4 +29,25 @@ function getGameLines(roomID) {
   return games[roomID]?.lines;
 }
 
-module.exports = { createLine, addPoint, undo, clear, getGameLines };
+function addGame(roomID) {
+  games[roomID] = { isGameStarted: false, lines: [] };
+}
+
+function getGameStatus(roomID) {
+  return games[roomID]?.isGameStarted;
+}
+
+function setGameStatus(roomID, isGameStarted) {
+  games[roomID].isGameStarted = isGameStarted;
+}
+
+module.exports = {
+  createLine,
+  addPoint,
+  undo,
+  clear,
+  getGameLines,
+  addGame,
+  getGameStatus,
+  setGameStatus,
+};

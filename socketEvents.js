@@ -4,7 +4,15 @@ const {
   getGameLines,
   undo,
   clear,
-} = require("./drawingBoardManager");
+  addGame,
+  getGameStatus,
+  setGameStatus,
+} = require("./gameManager");
+
+async function handleRecoverGameStatus(socket) {
+  const roomID = socket.handshake.auth.roomID;
+  socket.emit("recover game status", getGameStatus(roomID));
+}
 
 async function handleChatMessage(socket, db, message, clientOffset) {
   let result;
@@ -58,17 +66,38 @@ async function handleRecoveredLines(socket) {
 }
 
 async function handleSocketEvents(io, socket, db) {
+  const roomID = socket.handshake.auth.roomID;
+
   socket.on("join room", (callback) => {
     const room = io.sockets.adapter.rooms.get(socket.handshake.auth.roomID);
 
     if (!room) return callback(false);
 
-    socket.join(socket.handshake.auth.roomID);
-    callback(true);
+    socket.join(roomID);
+    callback(true, getGameStatus(roomID));
   });
 
   socket.on("create room", () => {
+    addGame(socket.handshake.auth.roomID);
     socket.join(socket.handshake.auth.roomID);
+  });
+
+  socket.on("start countdown", () => {
+    socket.broadcast
+      .to(socket.handshake.auth.roomID)
+      .emit("start countdown", false);
+  });
+
+  socket.on("start game", () => {
+    const roomID = socket.handshake.auth.roomID;
+    setGameStatus(roomID, true);
+
+    const roomMembers = io.sockets.adapter.rooms.get(roomID);
+
+    const selectedPlayerId =
+      Array.from(roomMembers)[Math.floor(Math.random() * roomMembers.size)];
+
+    io.to(selectedPlayerId).emit("selected player");
   });
 
   socket.on("drawingNewLine", (line, clientOffset) => {
@@ -106,6 +135,7 @@ async function handleSocketEvents(io, socket, db) {
   if (!socket.recovered) {
     await handleRecoveredMessages(socket, db);
     await handleRecoveredLines(socket);
+    await handleRecoverGameStatus(socket);
   }
 }
 

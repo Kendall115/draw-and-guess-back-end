@@ -9,6 +9,26 @@ const {
   setGameStatus,
 } = require("./gameManager");
 
+const { getRandomWord } = require("./database");
+
+const timers = {};
+
+function startTimer(roomID, duration, io) {
+  if (!timers[roomID]) {
+    timers[roomID] = duration; // Set the initial timer value
+    const timerInterval = setInterval(() => {
+      timers[roomID]--;
+      io.to(roomID).emit("timer update", timers[roomID]);
+
+      if (timers[roomID] <= 0) {
+        clearInterval(timerInterval);
+        delete timers[roomID]; // Clean up
+        // io.to(roomID).emit("time's up");
+      }
+    }, 1000);
+  }
+}
+
 async function handleRecoverGameStatus(socket) {
   const roomID = socket.handshake.auth.roomID;
   socket.emit("recover game status", getGameStatus(roomID));
@@ -34,7 +54,7 @@ async function handleChatMessage(socket, db, message, clientOffset) {
 
   socket.broadcast
     .to(socket.handshake.auth.roomID)
-    .emit("chat message", message, result.lastID);
+    .emit("chat message", { ...message, serverChatOffset: result.lastID });
 }
 
 async function handleRecoveredMessages(socket, db) {
@@ -46,11 +66,11 @@ async function handleRecoveredMessages(socket, db) {
         socket.handshake.auth.serverChatOffset || 0,
       ],
       (_err, row) => {
-        socket.emit(
-          "chat message",
-          { userName: row.user_name, text: row.content },
-          row.id
-        );
+        socket.emit("chat message", {
+          userName: row.user_name,
+          text: row.content,
+          serverChatOffset: row.id,
+        });
       }
     );
   } catch (e) {}
@@ -68,8 +88,8 @@ async function handleRecoveredLines(socket) {
 async function handleSocketEvents(io, socket, db) {
   const roomID = socket.handshake.auth.roomID;
 
-  socket.on("join room", (callback) => {
-    const room = io.sockets.adapter.rooms.get(socket.handshake.auth.roomID);
+  socket.on("join room", (roomID, callback) => {
+    const room = io.sockets.adapter.rooms.get(roomID);
 
     if (!room) return callback(false);
 
@@ -77,9 +97,9 @@ async function handleSocketEvents(io, socket, db) {
     callback(true, getGameStatus(roomID));
   });
 
-  socket.on("create room", () => {
-    addGame(socket.handshake.auth.roomID);
-    socket.join(socket.handshake.auth.roomID);
+  socket.on("create room", (roomID) => {
+    addGame(roomID);
+    socket.join(roomID);
   });
 
   socket.on("start countdown", () => {
@@ -88,7 +108,7 @@ async function handleSocketEvents(io, socket, db) {
       .emit("start countdown", false);
   });
 
-  socket.on("start game", () => {
+  socket.on("start game", async () => {
     const roomID = socket.handshake.auth.roomID;
     setGameStatus(roomID, true);
 
@@ -97,7 +117,13 @@ async function handleSocketEvents(io, socket, db) {
     const selectedPlayerId =
       Array.from(roomMembers)[Math.floor(Math.random() * roomMembers.size)];
 
-    io.to(selectedPlayerId).emit("selected player");
+    const guessWord = await getRandomWord();
+    io.to(selectedPlayerId).emit("selected player", {
+      isCurrentTurn: true,
+      guessWord,
+    });
+
+    startTimer(roomID, 60, io);
   });
 
   socket.on("drawingNewLine", (line, clientOffset) => {

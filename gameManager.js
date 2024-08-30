@@ -34,15 +34,15 @@ function addGame(roomID) {
 }
 
 function getGameStatus(roomID) {
-  return games[roomID]?.isGameStarted;
+  return games[roomID]?.gameStatus;
 }
 
 function getGameGuessword(roomID) {
   return games[roomID]?.guessWord;
 }
 
-function setGameStatus(roomID, isGameStarted) {
-  games[roomID].isGameStarted = isGameStarted;
+function setGameStatus(roomID, status) {
+  games[roomID].gameStatus = status;
 }
 
 function setGuessWord(roomID, guessWord) {

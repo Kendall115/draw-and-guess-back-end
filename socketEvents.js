@@ -21,10 +21,9 @@ function startTimer(roomID, duration, io) {
     const timerInterval = setInterval(() => {
       timers[roomID]--;
       io.to(roomID).emit("timer update", timers[roomID]);
-
       if (timers[roomID] <= 0) {
         const guessword = getGameGuessword(roomID);
-        setGameStatus(roomID, false);
+        setGameStatus(roomID, "countdown");
         clearInterval(timerInterval);
         delete timers[roomID];
         io.to(roomID).emit("time is up", guessword);
@@ -127,7 +126,7 @@ async function handleSocketEvents(io, socket, db) {
 
   socket.on("start game", async () => {
     const roomID = socket.handshake.auth.roomID;
-    setGameStatus(roomID, true);
+    setGameStatus(roomID, "playing");
 
     const roomMembers = io.sockets.adapter.rooms.get(roomID);
 
@@ -146,7 +145,7 @@ async function handleSocketEvents(io, socket, db) {
     });
 
     io.to(roomID).emit("user name drawing", selectedPlyayerUserName);
-    startTimer(roomID, 50, io);
+    startTimer(roomID, 5, io);
   });
 
   socket.on("drawingNewLine", (line, clientOffset) => {
@@ -180,7 +179,7 @@ async function handleSocketEvents(io, socket, db) {
   socket.on("play again", () => {
     const roomID = socket.handshake.auth.roomID;
     clear(roomID);
-    setGameStatus(roomID, false);
+    setGameStatus(roomID, "countdown");
     socket.to(roomID).emit("play again");
   });
 

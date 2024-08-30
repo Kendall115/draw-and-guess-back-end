@@ -15,7 +15,8 @@ async function connectToDatabase() {
         client_offset TEXT UNIQUE,
         room_id TEXT,
         user_name TEXT,
-        content TEXT
+        content TEXT,
+        is_guess BOOLEAN DEFAULT FALSE
     );
   `);
 

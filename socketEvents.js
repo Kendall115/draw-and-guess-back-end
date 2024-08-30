@@ -7,6 +7,8 @@ const {
   addGame,
   getGameStatus,
   setGameStatus,
+  setGuessWord,
+  getGameGuessword,
 } = require("./gameManager");
 
 const { getRandomWord } = require("./database");
@@ -21,9 +23,11 @@ function startTimer(roomID, duration, io) {
       io.to(roomID).emit("timer update", timers[roomID]);
 
       if (timers[roomID] <= 0) {
+        const guessword = getGameGuessword(roomID);
+        setGameStatus(roomID, false);
         clearInterval(timerInterval);
-        delete timers[roomID]; // Clean up
-        // io.to(roomID).emit("time's up");
+        delete timers[roomID];
+        io.to(roomID).emit("time is up", guessword);
       }
     }, 1000);
   }
@@ -39,17 +43,26 @@ async function handleChatMessage(socket, db, message, clientOffset) {
 
   try {
     result = await db.run(
-      "INSERT INTO messages (content, client_offset, user_name, room_id) VALUES (?, ?, ?, ?)",
+      "INSERT INTO messages (content, client_offset, user_name, room_id, is_guess) VALUES (?, ?, ?, ?, ?)",
       message.text,
       clientOffset,
       message.userName,
-      message.roomID
+      message.roomID,
+      message.isGuess
     );
   } catch (error) {
     if (error.errno === 19) {
     }
     console.log(error);
     return;
+  }
+
+  if (message.isGuess) {
+    message.text = `${message.userName} guessed the word!`;
+    socket.emit("chat message", {
+      ...message,
+      serverChatOffset: result.lastID,
+    });
   }
 
   socket.broadcast
@@ -60,15 +73,19 @@ async function handleChatMessage(socket, db, message, clientOffset) {
 async function handleRecoveredMessages(socket, db) {
   try {
     await db.each(
-      "SELECT id, user_name, content FROM messages WHERE room_id = ? AND id > ?",
+      "SELECT id, user_name, content, is_guess FROM messages WHERE room_id = ? AND id > ?",
       [
         socket.handshake.auth.roomID,
         socket.handshake.auth.serverChatOffset || 0,
       ],
       (_err, row) => {
+        const text = row.is_guess
+          ? `${row.user_name} guessed the word!`
+          : row.content;
         socket.emit("chat message", {
           userName: row.user_name,
-          text: row.content,
+          text,
+          isGuess: row.is_guess,
           serverChatOffset: row.id,
         });
       }
@@ -117,13 +134,19 @@ async function handleSocketEvents(io, socket, db) {
     const selectedPlayerId =
       Array.from(roomMembers)[Math.floor(Math.random() * roomMembers.size)];
 
+    const sockets = await io.in(selectedPlayerId).fetchSockets();
+    const selectedPlyayerUserName = sockets[0].handshake.auth.userName;
+
     const guessWord = await getRandomWord();
+    setGuessWord(roomID, guessWord);
+
     io.to(selectedPlayerId).emit("selected player", {
       isCurrentTurn: true,
       guessWord,
     });
 
-    startTimer(roomID, 60, io);
+    io.to(roomID).emit("user name drawing", selectedPlyayerUserName);
+    startTimer(roomID, 50, io);
   });
 
   socket.on("drawingNewLine", (line, clientOffset) => {
@@ -154,7 +177,16 @@ async function handleSocketEvents(io, socket, db) {
       .emit("clear", clientOffset);
   });
 
+  socket.on("play again", () => {
+    const roomID = socket.handshake.auth.roomID;
+    clear(roomID);
+    setGameStatus(roomID, false);
+    socket.to(roomID).emit("play again");
+  });
+
   socket.on("chat message", async (message, clientOffset) => {
+    const guessWord = getGameGuessword(socket.handshake.auth.roomID);
+    if (message.text.includes(guessWord)) message.isGuess = true;
     await handleChatMessage(socket, db, message, clientOffset);
   });
 

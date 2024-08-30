@@ -37,8 +37,16 @@ function getGameStatus(roomID) {
   return games[roomID]?.isGameStarted;
 }
 
+function getGameGuessword(roomID) {
+  return games[roomID]?.guessWord;
+}
+
 function setGameStatus(roomID, isGameStarted) {
   games[roomID].isGameStarted = isGameStarted;
+}
+
+function setGuessWord(roomID, guessWord) {
+  games[roomID].guessWord = guessWord;
 }
 
 module.exports = {
@@ -47,7 +55,9 @@ module.exports = {
   undo,
   clear,
   getGameLines,
+  getGameGuessword,
   addGame,
   getGameStatus,
   setGameStatus,
+  setGuessWord,
 };

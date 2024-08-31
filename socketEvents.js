@@ -11,24 +11,97 @@ const {
   getGameGuessword,
 } = require("./gameManager");
 
+const { startTimer, getRandomPlayer } = require("./gameUtils");
 const { getRandomWord } = require("./database");
 
-const timers = {};
+const GAME_TIME = 45;
 
-function startTimer(roomID, duration, io) {
-  if (!timers[roomID]) {
-    timers[roomID] = duration; // Set the initial timer value
-    const timerInterval = setInterval(() => {
-      timers[roomID]--;
-      io.to(roomID).emit("timer update", timers[roomID]);
-      if (timers[roomID] <= 0) {
-        const guessword = getGameGuessword(roomID);
-        setGameStatus(roomID, "countdown");
-        clearInterval(timerInterval);
-        delete timers[roomID];
-        io.to(roomID).emit("time is up", guessword);
-      }
-    }, 1000);
+async function handleSocketEvents(io, socket, db) {
+  const roomID = socket.handshake.auth.roomID;
+
+  socket.on("join room", (roomID, callback) => {
+    const room = io.sockets.adapter.rooms.get(roomID);
+
+    if (!room) return callback(false);
+
+    socket.join(roomID);
+    callback(true, getGameStatus(roomID));
+  });
+
+  socket.on("create room", (roomID) => {
+    addGame(roomID);
+    socket.join(roomID);
+  });
+
+  socket.on("start countdown", () => {
+    socket.broadcast.to(roomID).emit("start countdown", false);
+  });
+
+  socket.on("start game", async () => {
+    setGameStatus(roomID, "playing");
+
+    const { selectedPlayerUserName, selectedPlayerId } = await getRandomPlayer(
+      roomID,
+      io
+    );
+
+    const guessWord = await getRandomWord();
+    setGuessWord(roomID, guessWord);
+
+    io.to(selectedPlayerId).emit("selected player", {
+      isCurrentTurn: true,
+      guessWord,
+    });
+
+    io.to(roomID).emit("user name drawing", selectedPlayerUserName);
+    io.to(roomID).emit("start game", selectedPlayerUserName);
+    startTimer(roomID, GAME_TIME, io);
+  });
+
+  socket.on("drawingNewLine", (line, clientOffset) => {
+    createLine(line, roomID);
+    socket.broadcast.to(roomID).emit("drawingNewLine", line, clientOffset);
+  });
+
+  socket.on("drawing", (point, clientOffset) => {
+    addPoint(point, roomID);
+    socket.broadcast.to(roomID).emit("drawing", point, clientOffset);
+  });
+
+  socket.on("undo", (clientOffset) => {
+    undo(roomID);
+    socket.broadcast.to(roomID).emit("undo", clientOffset);
+  });
+
+  socket.on("clear", (clientOffset) => {
+    clear(roomID);
+    socket.broadcast.to(roomID).emit("clear", clientOffset);
+  });
+
+  socket.on("play again", () => {
+    clear(roomID);
+    setGameStatus(roomID, "countdown");
+    socket.to(roomID).emit("play again");
+  });
+
+  socket.on("auth update", (newAuth) => {
+    socket.handshake.auth = newAuth;
+  });
+
+  socket.on("chat message", async (message, clientOffset) => {
+    const guessWord = getGameGuessword(roomID);
+    if (
+      message.text.includes(guessWord) &&
+      !socket.handshake.auth.isCurrentTurn
+    )
+      message.isGuess = true;
+    await handleChatMessage(socket, db, message, clientOffset);
+  });
+
+  if (!socket.recovered) {
+    await handleRecoveredMessages(socket, db);
+    await handleRecoveredLines(socket);
+    await handleRecoverGameStatus(socket);
   }
 }
 
@@ -50,14 +123,17 @@ async function handleChatMessage(socket, db, message, clientOffset) {
       message.isGuess
     );
   } catch (error) {
-    if (error.errno === 19) {
-    }
     console.log(error);
     return;
   }
 
-  if (message.isGuess) {
+  if (
+    message.isGuess &&
+    !socket.handshake.auth.isCurrentTurn &&
+    getGameStatus(message.roomID) === "playing"
+  ) {
     message.text = `${message.userName} guessed the word!`;
+    message.userName = "";
     socket.emit("chat message", {
       ...message,
       serverChatOffset: result.lastID,
@@ -99,101 +175,6 @@ async function handleRecoveredLines(socket) {
   if (!gameLines) return;
 
   socket.emit("recover lines", gameLines);
-}
-
-async function handleSocketEvents(io, socket, db) {
-  const roomID = socket.handshake.auth.roomID;
-
-  socket.on("join room", (roomID, callback) => {
-    const room = io.sockets.adapter.rooms.get(roomID);
-
-    if (!room) return callback(false);
-
-    socket.join(roomID);
-    callback(true, getGameStatus(roomID));
-  });
-
-  socket.on("create room", (roomID) => {
-    addGame(roomID);
-    socket.join(roomID);
-  });
-
-  socket.on("start countdown", () => {
-    socket.broadcast
-      .to(socket.handshake.auth.roomID)
-      .emit("start countdown", false);
-  });
-
-  socket.on("start game", async () => {
-    const roomID = socket.handshake.auth.roomID;
-    setGameStatus(roomID, "playing");
-
-    const roomMembers = io.sockets.adapter.rooms.get(roomID);
-
-    const selectedPlayerId =
-      Array.from(roomMembers)[Math.floor(Math.random() * roomMembers.size)];
-
-    const sockets = await io.in(selectedPlayerId).fetchSockets();
-    const selectedPlyayerUserName = sockets[0].handshake.auth.userName;
-
-    const guessWord = await getRandomWord();
-    setGuessWord(roomID, guessWord);
-
-    io.to(selectedPlayerId).emit("selected player", {
-      isCurrentTurn: true,
-      guessWord,
-    });
-
-    io.to(roomID).emit("user name drawing", selectedPlyayerUserName);
-    startTimer(roomID, 5, io);
-  });
-
-  socket.on("drawingNewLine", (line, clientOffset) => {
-    createLine(line, socket.handshake.auth.roomID);
-    socket.broadcast
-      .to(socket.handshake.auth.roomID)
-      .emit("drawingNewLine", line, clientOffset);
-  });
-
-  socket.on("drawing", (point, clientOffset) => {
-    addPoint(point, socket.handshake.auth.roomID);
-    socket.broadcast
-      .to(socket.handshake.auth.roomID)
-      .emit("drawing", point, clientOffset);
-  });
-
-  socket.on("undo", (clientOffset) => {
-    undo(socket.handshake.auth.roomID);
-    socket.broadcast
-      .to(socket.handshake.auth.roomID)
-      .emit("undo", clientOffset);
-  });
-
-  socket.on("clear", (clientOffset) => {
-    clear(socket.handshake.auth.roomID);
-    socket.broadcast
-      .to(socket.handshake.auth.roomID)
-      .emit("clear", clientOffset);
-  });
-
-  socket.on("play again", () => {
-    const roomID = socket.handshake.auth.roomID;
-    clear(roomID);
-    setGameStatus(roomID, "countdown");
-    socket.to(roomID).emit("play again");
-  });
-
-  socket.on("chat message", async (message, clientOffset) => {
-    const guessWord = getGameGuessword(socket.handshake.auth.roomID);
-    if (message.text.includes(guessWord)) message.isGuess = true;
-    await handleChatMessage(socket, db, message, clientOffset);
-  });
-
-  if (!socket.recovered) {
-    await handleRecoveredMessages(socket, db);
-    await handleRecoveredLines(socket);
-    await handleRecoverGameStatus(socket);
-  }
 }
 
 module.exports = { handleSocketEvents };

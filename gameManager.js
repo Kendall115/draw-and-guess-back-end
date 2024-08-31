@@ -30,11 +30,11 @@ function getGameLines(roomID) {
 }
 
 function addGame(roomID) {
-  games[roomID] = { isGameStarted: false, lines: [] };
+  games[roomID] = { gameStatus: "waiting", lines: [] };
 }
 
 function getGameStatus(roomID) {
-  return games[roomID]?.gameStatus;
+  return games[roomID]?.gameStatus || "waiting";
 }
 
 function getGameGuessword(roomID) {

@@ -30,7 +30,7 @@ function getGameLines(roomID) {
 }
 
 function addGame(roomID) {
-  games[roomID] = { gameStatus: "waiting", lines: [] };
+  games[roomID] = { gameStatus: "waiting", lines: [], players: [] };
 }
 
 function getGameStatus(roomID) {
@@ -49,6 +49,21 @@ function setGuessWord(roomID, guessWord) {
   games[roomID].guessWord = guessWord;
 }
 
+function getPlayers(roomID) {
+  return games[roomID]?.players || [];
+}
+
+function addPlayer(roomID, userName) {
+  games[roomID].players.push(userName);
+}
+
+function removePlayer(roomID, userName) {
+  if (!games[roomID]?.players) return;
+  games[roomID].players = games[roomID].players.filter(
+    (player) => player !== userName
+  );
+}
+
 module.exports = {
   createLine,
   addPoint,
@@ -60,4 +75,7 @@ module.exports = {
   getGameStatus,
   setGameStatus,
   setGuessWord,
+  addPlayer,
+  removePlayer,
+  getPlayers,
 };

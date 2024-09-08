@@ -9,6 +9,9 @@ const {
   setGameStatus,
   setGuessWord,
   getGameGuessword,
+  addPlayer,
+  removePlayer,
+  getPlayers,
 } = require("./gameManager");
 
 const { startTimer, getRandomPlayer } = require("./gameUtils");
@@ -24,13 +27,17 @@ async function handleSocketEvents(io, socket, db) {
 
     if (!room) return callback(false);
 
+    addPlayer(roomID, socket.handshake.auth.userName);
     socket.join(roomID);
+    socket.to(roomID).emit("update player list", getPlayers(roomID));
     callback(true, getGameStatus(roomID));
   });
 
   socket.on("create room", (roomID) => {
     addGame(roomID);
+    addPlayer(roomID, socket.handshake.auth.userName);
     socket.join(roomID);
+    socket.to(roomID).emit("update player list", getPlayers(roomID));
   });
 
   socket.on("start countdown", () => {
@@ -96,6 +103,16 @@ async function handleSocketEvents(io, socket, db) {
     )
       message.isGuess = true;
     await handleChatMessage(socket, db, message, clientOffset);
+  });
+
+  socket.on("get player list", (callback) => {
+    const players = getPlayers(roomID);
+    return callback(players);
+  });
+
+  socket.on("disconnect", () => {
+    removePlayer(roomID, socket.handshake.auth.userName);
+    socket.to(roomID).emit("update player list", getPlayers(roomID));
   });
 
   if (!socket.recovered) {
